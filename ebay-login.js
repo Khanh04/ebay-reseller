@@ -1,5 +1,4 @@
 const { chromium } = require('playwright');
-const TIMEOUT = 60000;
 
 async function ebayAutomation(itemLimit = 10, brandNames = []) {
   // Launch the browser
@@ -26,9 +25,9 @@ async function ebayAutomation(itemLimit = 10, brandNames = []) {
       // 2. Presence of user menu that indicates logged-in state
       await Promise.race([
         // Wait for navigation to complete (if redirected to homepage)
-        page.waitForNavigation({ timeout: TIMEOUT }), // 5 minute timeout
+        page.waitForNavigation({ timeout: 300000 }), // 5 minute timeout
         // Wait for an element that only appears when logged in (user menu)
-        page.waitForSelector('.gh-identity, .gh-account, .account-info', { timeout: TIMEOUT })
+        page.waitForSelector('.gh-identity, .gh-account, .account-info', { timeout: 300000 })
       ]);
       
       console.log('Login detected! Proceeding...');
@@ -84,42 +83,33 @@ async function ebayAutomation(itemLimit = 10, brandNames = []) {
 async function processBrandCompletely(page, brandName, itemLimit) {
   try {
     // Step 1: Navigate to active listings and apply brand filter
-    console.log(`\n--- Step 1: Finding active listings for "${brandName || 'all items'}" ---`);
+    console.log(`\n--- Step 1: Finding and ending active listings for "${brandName || 'all items'}" ---`);
     
     // Navigate to the active listings sorted by visit count page
     await page.goto('https://www.ebay.com/sh/lst/active?action=sort&sort=visitCount');
     await page.waitForLoadState('networkidle');
     
-    let itemsToProcess = [];
-    
     if (brandName) {
       // Apply brand filter
       await applyBrandFilter(page, brandName);
-      itemsToProcess = await processListingsWithPagination(page, itemLimit);
-      console.log(`Found ${itemsToProcess.length} items for brand "${brandName}"`);
-    } else {
-      // Process all items without filtering
-      itemsToProcess = await processListingsWithPagination(page, itemLimit);
-      console.log(`Found ${itemsToProcess.length} items matching criteria`);
     }
     
-    if (itemsToProcess.length === 0) {
+    // Process pages one by one, ending items as we go
+    const totalEnded = await processAndEndListingsPageByPage(page, itemLimit);
+    
+    if (totalEnded === 0) {
       console.log(`No items found for ${brandName || 'all items'}. Skipping to next brand.`);
       return;
     }
     
-    console.log(`Will process ${itemsToProcess.length} items`);
-    
-    // Step 2: End the listings
-    console.log(`\n--- Step 2: Ending ${itemsToProcess.length} listings ---`);
-    await endListings(page, itemsToProcess);
+    console.log(`Successfully ended ${totalEnded} listings for "${brandName || 'all items'}"`);
 
     console.log('Waiting 1 minute before proceeding to resell...');
     await page.waitForTimeout(60000);
     
-    // Step 3: Navigate to ended listings and resell
-    console.log(`\n--- Step 3: Reselling ended listings ---`);
-    await resellEndedListings(page, itemsToProcess.length, brandName);
+    // Step 2: Navigate to ended listings and resell
+    console.log(`\n--- Step 2: Reselling ended listings ---`);
+    await resellEndedListings(page, totalEnded, brandName);
     
     console.log(`Successfully completed all steps for "${brandName || 'all items'}"`);
     
@@ -129,38 +119,49 @@ async function processBrandCompletely(page, brandName, itemLimit) {
   }
 }
 
-// New function to process listings with pagination support
-async function processListingsWithPagination(page, itemLimit) {
-  console.log(`Looking for ${itemLimit} items matching criteria across all pages...`);
+// New function to process and end listings page by page
+async function processAndEndListingsPageByPage(page, itemLimit) {
+  console.log(`Looking for up to ${itemLimit} items to end, processing page by page...`);
   
-  let allMatchingItems = [];
+  let totalItemsEnded = 0;
   let currentPage = 1;
   let maxPages = 50; // Safety limit to prevent infinite loops
   
-  while (allMatchingItems.length < itemLimit && currentPage <= maxPages) {
-    console.log(`\n--- Checking page ${currentPage} ---`);
+  while (totalItemsEnded < itemLimit && currentPage <= maxPages) {
+    console.log(`\n--- Processing page ${currentPage} ---`);
     
     // Wait for the page to load
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
     
-    // Process current page
+    // Find matching items on current page
     const pageItems = await processListingsForCriteria(page);
     console.log(`Found ${pageItems.length} matching items on page ${currentPage}`);
     
-    // Add items from this page to our collection
-    for (const item of pageItems) {
-      if (allMatchingItems.length < itemLimit) {
-        allMatchingItems.push(item);
+    if (pageItems.length === 0) {
+      console.log('No matching items on this page, moving to next page...');
+    } else {
+      // Calculate how many items we can process from this page
+      const remainingNeeded = itemLimit - totalItemsEnded;
+      const itemsToProcess = Math.min(pageItems.length, remainingNeeded);
+      
+      console.log(`Will end ${itemsToProcess} items from this page (${remainingNeeded} still needed)`);
+      
+      // Select and end items from this page
+      const itemsActuallyEnded = await selectAndEndItemsOnCurrentPage(page, pageItems.slice(0, itemsToProcess));
+      totalItemsEnded += itemsActuallyEnded;
+      
+      console.log(`Ended ${itemsActuallyEnded} items from page ${currentPage}. Total ended so far: ${totalItemsEnded}`);
+      
+      // If we've ended enough items, break
+      if (totalItemsEnded >= itemLimit) {
+        console.log(`✓ Reached target of ${itemLimit} items ended`);
+        break;
       }
-    }
-    
-    console.log(`Total matching items so far: ${allMatchingItems.length} (need ${itemLimit})`);
-    
-    // If we have enough items, break
-    if (allMatchingItems.length >= itemLimit) {
-      console.log(`✓ Found enough items (${allMatchingItems.length}/${itemLimit})`);
-      break;
+      
+      // Wait before continuing to next page
+      console.log('Waiting 5 seconds before moving to next page...');
+      await page.waitForTimeout(5000);
     }
     
     // Try to navigate to next page
@@ -173,11 +174,121 @@ async function processListingsWithPagination(page, itemLimit) {
     currentPage++;
   }
   
-  // Return only the number of items we need
-  const itemsToReturn = allMatchingItems.slice(0, itemLimit);
-  console.log(`\n🎯 Final result: Found ${itemsToReturn.length} items to process`);
-  
-  return itemsToReturn;
+  console.log(`\n🎯 Final result: Ended ${totalItemsEnded} items total across ${currentPage} pages`);
+  return totalItemsEnded;
+}
+
+// Function to select and end items on the current page
+async function selectAndEndItemsOnCurrentPage(page, itemsToProcess) {
+  try {
+    console.log(`Selecting ${itemsToProcess.length} items on current page...`);
+    
+    // Select all the matching items on this page
+    for (let i = 0; i < itemsToProcess.length; i++) {
+      try {
+        await itemsToProcess[i].checkbox.click();
+        console.log(`✓ Selected item ${i + 1}/${itemsToProcess.length}`);
+        // Small delay between clicks to avoid rate limiting
+        await page.waitForTimeout(200);
+      } catch (error) {
+        console.error(`Error selecting item ${i + 1}:`, error);
+      }
+    }
+    
+    console.log(`Successfully selected ${itemsToProcess.length} items`);
+    
+    // End the selected listings
+    await endSelectedListings(page);
+    
+    return itemsToProcess.length;
+    
+  } catch (error) {
+    console.error('Error in selectAndEndItemsOnCurrentPage:', error);
+    return 0;
+  }
+}
+
+// Function to end currently selected listings
+async function endSelectedListings(page) {
+  try {
+    // Click on the "Actions" dropdown button first
+    console.log('Opening Actions dropdown menu...');
+    await page.click('button.fake-menu-button__button:has-text("Actions")');
+    
+    // Small pause to ensure the menu is fully expanded
+    await page.waitForTimeout(500);
+    
+    // Click on the "End listings" option in the menu
+    console.log('Selecting "End listings" from Actions dropdown...');
+    
+    // Try multiple approaches to click the "End listings" button
+    try {
+      await page.click('button.fake-menu-button__item:has-text("End listings")');
+    } catch (error) {
+      console.log('First approach failed, trying alternative methods...');
+      
+      try {
+        await page.click('.shui-menu-dropdown__primary-text:text("End listings")');
+      } catch (error) {
+        console.log('Second approach failed, trying another method...');
+        
+        try {
+          await page.click('button:has-text("End listings")');
+        } catch (error) {
+          console.log('Third approach failed, trying XPath...');
+          
+          try {
+            await page.click('xpath=//button[contains(.,"End listings")]');
+          } catch (error) {
+            console.log('Fourth approach failed, trying all menu items...');
+            
+            const menuItems = await page.$$eval('li button', buttons => 
+              buttons.map(button => button.textContent.trim())
+            );
+            console.log('Available menu items:', menuItems);
+            
+            const firstMenuItem = await page.$('li button');
+            if (firstMenuItem) {
+              await firstMenuItem.click();
+              console.log('Clicked first menu item as fallback');
+            } else {
+              console.error('Could not find any menu items to click');
+              throw new Error('Could not find End listings option');
+            }
+          }
+        }
+      }
+    }
+    
+    // Wait for any potential dialog that might appear after clicking
+    await page.waitForTimeout(2000);
+    
+    // Wait for potential dialog to appear
+    await page.waitForLoadState('networkidle');
+
+    console.log('Waiting for confirmation dialog to appear...');
+    
+    // Wait for the confirmation button to appear
+    await page.waitForSelector('button.btn--primary:has-text("End listings")', { timeout: 10000 });
+    console.log('Confirmation dialog detected');
+    
+    // Small delay to ensure the dialog is fully rendered
+    await page.waitForTimeout(500);
+    
+    // Click the confirmation button
+    console.log('Clicking the confirmation button...');
+    await page.click('button.btn--primary:has-text("End listings")');
+    
+    console.log('Successfully confirmed ending listings');
+    
+    // Wait for the process to complete
+    await page.waitForTimeout(3000);
+    console.log('Ending listings process completed for current page');
+    
+  } catch (error) {
+    console.error('Error in endSelectedListings function:', error);
+    throw error;
+  }
 }
 
 // Function to navigate to the next page
@@ -217,139 +328,8 @@ async function navigateToNextPage(page) {
   }
 }
 
-// Function to handle ending listings
-async function endListings(page, itemsToSelect) {
-  try {
-    // Navigate back to the active listings page to select items
-    console.log('Navigating back to active listings to select items...');
-    await page.goto('https://www.ebay.com/sh/lst/active?action=sort&sort=visitCount');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(2000);
-    
-    // We need to re-find and select the items since we may have navigated away
-    console.log('Re-selecting items for ending...');
-    
-    let itemsSelected = 0;
-    let currentPage = 1;
-    const maxPages = 10; // Reasonable limit for re-selection
-    
-    while (itemsSelected < itemsToSelect.length && currentPage <= maxPages) {
-      console.log(`Re-selecting items on page ${currentPage}...`);
-      
-      // Get current page items
-      const pageItems = await processListingsForCriteria(page);
-      
-      // Select items that match our criteria
-      for (const pageItem of pageItems) {
-        if (itemsSelected < itemsToSelect.length) {
-          try {
-            await pageItem.checkbox.click();
-            itemsSelected++;
-            console.log(`Selected item ${itemsSelected}/${itemsToSelect.length}`);
-            await page.waitForTimeout(200);
-          } catch (error) {
-            console.error('Error selecting item:', error);
-          }
-        }
-      }
-      
-      // If we've selected enough items, break
-      if (itemsSelected >= itemsToSelect.length) {
-        break;
-      }
-      
-      // Navigate to next page if needed
-      const hasNextPage = await navigateToNextPage(page);
-      if (!hasNextPage) {
-        break;
-      }
-      
-      currentPage++;
-    }
-    
-    console.log(`Successfully selected ${itemsSelected} items for ending`);
-    
-    // Click on the "Actions" dropdown button first
-    console.log('Opening Actions dropdown menu...');
-    await page.click('button.fake-menu-button__button:has-text("Actions")');
-    
-    // Small pause to ensure the menu is fully expanded
-    await page.waitForTimeout(500);
-    
-    // Click on the "End listings" option in the menu
-    console.log('Selecting "End listings" from Actions dropdown...');
-    
-    // Try multiple approaches to click the "End listings" button
-    try {
-      await page.click('button.fake-menu-button__item:has-text("End listings")');
-    } catch (error) {
-      console.log('First approach failed, trying alternative methods...');
-      
-      try {
-        await page.click('.shui-menu-dropdown__primary-text:text("End listings")');
-      } catch (error) {
-        console.log('Second approach failed, trying another method...');
-        
-        try {
-          await page.click('button:has-text("End listings")');
-        } catch (error) {
-          console.log('Third approach failed, trying XPath...');
-          
-          try {
-            await page.click('xpath=//button[contains(.,"End listings")]');
-          } catch (error) {
-            console.log('Fourth approach failed, trying all li elements...');
-            
-            const menuItems = await page.$$eval('li button', buttons => 
-              buttons.map(button => button.textContent.trim())
-            );
-            console.log('Available menu items:', menuItems);
-            
-            const firstMenuItem = await page.$('li button');
-            if (firstMenuItem) {
-              await firstMenuItem.click();
-              console.log('Clicked first menu item as fallback');
-            } else {
-              console.error('Could not find any menu items to click');
-            }
-          }
-        }
-      }
-    }
-    
-    // Wait for any potential dialog that might appear after clicking
-    await page.waitForTimeout(2000);
-    
-    // Wait for potential dialog to appear
-    await page.waitForLoadState('networkidle');
-
-    console.log('Waiting for confirmation dialog to appear...');
-    
-    // Wait for the confirmation button to appear
-    await page.waitForSelector('button.btn--primary:has-text("End listings")', { timeout: TIMEOUT });
-    console.log('Confirmation dialog detected');
-    
-    // Small delay to ensure the dialog is fully rendered
-    await page.waitForTimeout(500);
-    
-    // Click the confirmation button
-    console.log('Clicking the confirmation button...');
-    await page.click('button.btn--primary:has-text("End listings")');
-    
-    console.log('Successfully confirmed ending listings');
-    
-    // Wait for the process to complete
-    await page.waitForTimeout(3000);
-    console.log('Ending listings process completed');
-    
-  } catch (error) {
-    console.error('Error in endListings function:', error);
-    throw error;
-  }
-}
-
 // Function to handle reselling ended listings
-async function resellEndedListings(page, itemCount, brandName) {
+async function resellEndedListings(page, totalItemsEnded, brandName) {
   try {
     console.log('Navigating to unsold/not relisted items page...');
     await page.goto('https://www.ebay.com/sh/lst/ended?status=UNSOLD_NOT_RELISTED');
@@ -365,8 +345,8 @@ async function resellEndedListings(page, itemCount, brandName) {
     const endedRows = await page.$$('tr.grid-row');
     console.log(`Found ${endedRows.length} ended listings.`);
     
-    // Select the same number of rows as the itemCount
-    const rowsToSelect = Math.min(endedRows.length, itemCount);
+    // Select the same number of rows as the totalItemsEnded
+    const rowsToSelect = Math.min(endedRows.length, totalItemsEnded);
     console.log(`Will select the first ${rowsToSelect} ended listings.`);
     
     if (rowsToSelect === 0) {
@@ -444,7 +424,7 @@ async function selectAllAndSubmit(page) {
     try {
       // Wait for the checkbox to be visible
       await page.waitForSelector('.bg-checkbox input.checkbox__control[type="checkbox"][aria-label="Select all items for bulk edit."]', {
-        timeout: TIMEOUT,
+        timeout: 10000,
         state: 'visible'
       });
       
@@ -483,7 +463,7 @@ async function selectAllAndSubmit(page) {
     try {
       // Wait for the button to be visible
       await page.waitForSelector('button.bg-button.call-to-actions__submit-btn.btn.btn--small.btn--primary', {
-        timeout: TIMEOUT,
+        timeout: 10000,
         state: 'visible'
       });
       
@@ -642,7 +622,7 @@ async function applyBrandFilter(page, brandName) {
     console.log(`Applying filter for brand: "${brandName}"`);
     
     // Wait for the search box to be visible
-    await page.waitForSelector('#shui-search-box-v3__input', { timeout: TIMEOUT });
+    await page.waitForSelector('#shui-search-box-v3__input', { timeout: 20000 });
     
     // Clear any existing search text
     await page.fill('#shui-search-box-v3__input', '');
@@ -670,7 +650,7 @@ async function processListingsForCriteria(page) {
   console.log('Analyzing listings on current page...');
   
   // Wait for the table to be visible
-  await page.waitForSelector('div.shui-dt', { timeout: TIMEOUT });
+  await page.waitForSelector('div.shui-dt', { timeout: 10000 });
   
   // Wait a bit more for dynamic content to fully load
   await page.waitForTimeout(2000);
@@ -744,4 +724,4 @@ async function processListingsForCriteria(page) {
 }
 
 // Run the automation
-ebayAutomation(5, ['CND', 'DND', 'GELISH', 'IGEL']);
+ebayAutomation(50, ['DND']);
