@@ -1,3 +1,11 @@
+async function waitForBulkEditPage(page) {
+  await page.waitForLoadState('domcontentloaded').catch(() => null);
+  await page.waitForSelector(
+    '.bg-checkbox input.checkbox__control[type="checkbox"][aria-label="Select all items for bulk edit."], button.bg-button.call-to-actions__submit-btn.btn.btn--small.btn--primary',
+    { timeout: 30000 }
+  );
+}
+
 async function resellEndedListings(page, totalItemsEnded, brandName) {
   try {
     const endedRows = await page.$$('tr.grid-row');
@@ -50,7 +58,7 @@ async function resellEndedListings(page, totalItemsEnded, brandName) {
     }
     
     console.log('Waiting for listing form to load...');
-    await page.waitForLoadState('networkidle');
+    await waitForBulkEditPage(page);
     
     await page.waitForTimeout(5000);
     
@@ -113,7 +121,6 @@ async function selectAllAndSubmit(page) {
       await page.click('button.bg-button.call-to-actions__submit-btn.btn.btn--small.btn--primary');
       
       console.log('Waiting for confirmation dialog to appear...');
-      await page.waitForLoadState('networkidle');
       await page.waitForTimeout(2000);
       
       await handleConfirmationDialog(page);
@@ -126,7 +133,6 @@ async function selectAllAndSubmit(page) {
         await page.click('button:has-text("Submit")');
         console.log('Clicked "Submit" using text selector');
         
-        await page.waitForLoadState('networkidle');
         await page.waitForTimeout(3000);
       } catch (secondError) {
         console.error('Could not click "Submit" button with alternate method:', secondError);
@@ -235,7 +241,7 @@ async function handleConfirmationDialog(page) {
     }
     
     console.log('Waiting for final submission to complete...');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded').catch(() => null);
     await page.waitForTimeout(5000);
     
     console.log('Successfully completed the listing submission');

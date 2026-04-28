@@ -9,8 +9,9 @@ async function applyBrandFilter(page, brandName) {
     await page.fill('#shui-search-box__input', brandName);
     
     await page.press('#shui-search-box__input', 'Enter');
-    
-    await page.waitForLoadState('networkidle');
+
+    await page.waitForLoadState('domcontentloaded').catch(() => null);
+    await page.waitForSelector('#shui-search-box__input, div.shui-dt, tr.grid-row', { timeout: 30000 });
     await page.waitForTimeout(2000);
     
     console.log(`Filter applied for brand: "${brandName}"`);

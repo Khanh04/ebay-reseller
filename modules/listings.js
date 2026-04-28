@@ -1,5 +1,9 @@
 const { navigateToNextPage } = require('./navigation');
 
+async function waitForListingsGrid(page) {
+  await page.waitForSelector('div.shui-dt, tr.grid-row', { timeout: 30000 });
+}
+
 async function processAndEndListingsPageByPage(page, itemLimit) {
   console.log(`Looking for up to ${itemLimit} items to end, processing page by page...`);
   
@@ -9,8 +13,8 @@ async function processAndEndListingsPageByPage(page, itemLimit) {
   
   while (totalItemsEnded < itemLimit && currentPage <= maxPages) {
     console.log(`\n--- Processing page ${currentPage} ---`);
-    
-    await page.waitForLoadState('networkidle');
+
+    await waitForListingsGrid(page);
     await page.waitForTimeout(2000);
     
     const pageItems = await processListingsForCriteria(page);
@@ -125,7 +129,6 @@ async function endSelectedListings(page) {
     }
     
     await page.waitForTimeout(2000);
-    await page.waitForLoadState('networkidle');
 
     console.log('Waiting for confirmation dialog to appear...');
     

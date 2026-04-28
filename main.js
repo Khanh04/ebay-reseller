@@ -85,4 +85,4 @@ async function processBrandCompletely(page, brandName, itemLimit) {
   }
 }
 
-ebayAutomation(50, ['DND']);
+ebayAutomation(2, ['a']);
