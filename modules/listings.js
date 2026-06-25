@@ -56,31 +56,23 @@ async function processAndEndListingsPageByPage(page, itemLimit) {
 }
 
 async function selectAndEndItemsOnCurrentPage(page, itemsToProcess) {
-  try {
-    console.log(`Selecting ${itemsToProcess.length} items on current page...`);
+  console.log(`Selecting ${itemsToProcess.length} items on current page...`);
 
-    let selected = 0;
-    for (let i = 0; i < itemsToProcess.length; i++) {
-      try {
-        await itemsToProcess[i].checkbox.click();
-        console.log(`✓ Selected item ${i + 1}/${itemsToProcess.length}`);
-        await page.waitForTimeout(200);
-        selected++;
-      } catch (error) {
-        console.error(`Error selecting item ${i + 1}:`, error);
-      }
+  let selected = 0;
+  for (let i = 0; i < itemsToProcess.length; i++) {
+    try {
+      await itemsToProcess[i].checkbox.click();
+      console.log(`✓ Selected item ${i + 1}/${itemsToProcess.length}`);
+      await page.waitForTimeout(200);
+      selected++;
+    } catch (error) {
+      console.error(`Error selecting item ${i + 1}:`, error);
     }
-
-    console.log(`Successfully selected ${selected} items`);
-
-    await endSelectedListings(page);
-
-    return selected;
-    
-  } catch (error) {
-    console.error('Error in selectAndEndItemsOnCurrentPage:', error);
-    return 0;
   }
+
+  console.log(`Successfully selected ${selected} items`);
+  await endSelectedListings(page);
+  return selected;
 }
 
 async function endSelectedListings(page) {

@@ -1,3 +1,10 @@
+const readline = require('readline');
+
+async function promptUser(message) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise(resolve => rl.question(message, () => { rl.close(); resolve(); }));
+}
+
 async function waitForDelay(milliseconds, message = '') {
   if (message) {
     console.log(message);
@@ -43,6 +50,7 @@ function logAutomationComplete() {
 
 module.exports = {
   waitForDelay,
+  promptUser,
   initializeBrowser,
   logBrandProcessingStart,
   logBrandProcessingComplete,
