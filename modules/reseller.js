@@ -52,7 +52,7 @@ async function resellEndedListings(page, totalItemsEnded, brandName) {
           await page.click('text="Sell similar"');
         } catch (error) {
           console.log('Third sell similar approach failed, trying another method...');
-          await page.click('xpath=//button[contains(text(),"Sell similar")]');
+          await page.click('xpath=//button[contains(.,"Sell similar")]');
         }
       }
     }

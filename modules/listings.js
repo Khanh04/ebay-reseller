@@ -58,22 +58,24 @@ async function processAndEndListingsPageByPage(page, itemLimit) {
 async function selectAndEndItemsOnCurrentPage(page, itemsToProcess) {
   try {
     console.log(`Selecting ${itemsToProcess.length} items on current page...`);
-    
+
+    let selected = 0;
     for (let i = 0; i < itemsToProcess.length; i++) {
       try {
         await itemsToProcess[i].checkbox.click();
         console.log(`✓ Selected item ${i + 1}/${itemsToProcess.length}`);
         await page.waitForTimeout(200);
+        selected++;
       } catch (error) {
         console.error(`Error selecting item ${i + 1}:`, error);
       }
     }
-    
-    console.log(`Successfully selected ${itemsToProcess.length} items`);
-    
+
+    console.log(`Successfully selected ${selected} items`);
+
     await endSelectedListings(page);
-    
-    return itemsToProcess.length;
+
+    return selected;
     
   } catch (error) {
     console.error('Error in selectAndEndItemsOnCurrentPage:', error);
@@ -90,55 +92,21 @@ async function endSelectedListings(page) {
     
     console.log('Selecting "End listings" from Actions dropdown...');
     
-    try {
-      await page.click('button.fake-menu-button__item:has-text("End listings")');
-    } catch (error) {
-      console.log('First approach failed, trying alternative methods...');
-      
-      try {
-        await page.click('.shui-menu-dropdown__primary-text:text("End listings")');
-      } catch (error) {
-        console.log('Second approach failed, trying another method...');
-        
-        try {
-          await page.click('button:has-text("End listings")');
-        } catch (error) {
-          console.log('Third approach failed, trying XPath...');
-          
-          try {
-            await page.click('xpath=//button[contains(.,"End listings")]');
-          } catch (error) {
-            console.log('Fourth approach failed, trying all menu items...');
-            
-            const menuItems = await page.$$eval('li button', buttons => 
-              buttons.map(button => button.textContent.trim())
-            );
-            console.log('Available menu items:', menuItems);
-            
-            const firstMenuItem = await page.$('li button');
-            if (firstMenuItem) {
-              await firstMenuItem.click();
-              console.log('Clicked first menu item as fallback');
-            } else {
-              console.error('Could not find any menu items to click');
-              throw new Error('Could not find End listings option');
-            }
-          }
-        }
-      }
-    }
-    
+    // ponytail: partial match handles both "End listing" (1 item) and "End listings" (plural)
+    await page.click('xpath=//button[contains(.,"End listing")]');
+
     await page.waitForTimeout(2000);
 
     console.log('Waiting for confirmation dialog to appear...');
-    
-    await page.waitForSelector('button.btn--primary:has-text("End listings")', { timeout: 10000 });
+
+    // ponytail: same singular/plural issue on confirm dialog
+    await page.waitForSelector('button.btn--primary:has-text("End listing")', { timeout: 10000 });
     console.log('Confirmation dialog detected');
-    
+
     await page.waitForTimeout(500);
-    
+
     console.log('Clicking the confirmation button...');
-    await page.click('button.btn--primary:has-text("End listings")');
+    await page.click('button.btn--primary:has-text("End listing")');
     
     console.log('Successfully confirmed ending listings');
     
@@ -180,6 +148,8 @@ async function processListingsForCriteria(page) {
       if (timeLeftText.includes('d')) {
         const match = timeLeftText.match(/(\d+)d/);
         daysLeft = match ? parseInt(match[1]) : 100;
+      } else if (timeLeftText.match(/\d+h/)) {
+        daysLeft = 0;
       }
       
       const soldElement = await row.$('td.shui-dt-column__soldQuantity div.shui-dt--text-column div');
