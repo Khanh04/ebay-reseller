@@ -7,7 +7,6 @@ const { resellEndedListings } = require('./modules/reseller');
 const {
   waitForDelay,
   promptUser,
-  initializeBrowser,
   logBrandProcessingStart,
   logBrandProcessingComplete,
   logAllBrandsComplete,
@@ -15,42 +14,40 @@ const {
   logAutomationComplete
 } = require('./modules/utils');
 
-async function ebayAutomation(itemLimit = 10, brandNames = []) {
-  const { browser, context, page } = await initializeBrowser(chromium);
+async function ebayAutomation(accounts) {
+  const browser = await chromium.launch({ headless: false });
 
-  try {
-    await handleLogin(page);
-    
-    if (brandNames && brandNames.length > 0) {
-      console.log(`Will process ${brandNames.length} brand(s): ${brandNames.join(', ')}`);
-      
-      for (let i = 0; i < brandNames.length; i++) {
-        const brandName = brandNames[i];
-        logBrandProcessingStart(i, brandNames.length, brandName);
-        
-        await processBrandCompletely(page, brandName, itemLimit);
-        
-        logBrandProcessingComplete(brandName);
-        
-        if (i < brandNames.length - 1) {
+  for (const account of accounts) {
+    console.log(`\n========================================`);
+    console.log(`Processing account: ${account.email}`);
+    console.log(`========================================`);
+
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    try {
+      await page.goto('https://www.ebay.com/');
+      await handleLogin(page, account);
+
+      const brands = account.keywords && account.keywords.length > 0 ? account.keywords : [null];
+
+      for (let i = 0; i < brands.length; i++) {
+        logBrandProcessingStart(i, brands.length, brands[i] || 'all items');
+        await processBrandCompletely(page, brands[i], account.amount);
+        logBrandProcessingComplete(brands[i] || 'all items');
+        if (i < brands.length - 1) {
           await waitForDelay(3000, 'Waiting 3 seconds before processing next brand...');
         }
       }
-      
+
       logAllBrandsComplete();
-      
-    } else {
-      console.log('No brand filtering specified, processing all items...');
-      await processBrandCompletely(page, null, itemLimit);
+    } catch (error) {
+      console.error(`Error for account ${account.email}:`, error.message);
     }
-    
-    logAutomationComplete();
-    await new Promise(() => {});
-    
-  } catch (error) {
-    console.error('Error during automation:', error);
-    console.error(error.stack);
   }
+
+  logAutomationComplete();
+  await new Promise(() => {});
 }
 
 async function processBrandCompletely(page, brandName, itemLimit) {
@@ -86,4 +83,11 @@ async function processBrandCompletely(page, brandName, itemLimit) {
   }
 }
 
-ebayAutomation(2, ['a']);
+ebayAutomation([
+  {
+    email: '',
+    password: '',
+    amount: 10,
+    keywords: []
+  }
+]);
