@@ -70,7 +70,7 @@ async function processBrandCompletely(page, brandName, itemLimit) {
     totalEnded = itemLimit;
   }
 
-  await waitForDelay(60000, 'Waiting 1 minute before proceeding to resell...');
+  await waitForDelay(300000, 'Waiting 5 minutes before proceeding to resell...');
 
   logStepStart(2, 'Reselling ended listings');
   try {
