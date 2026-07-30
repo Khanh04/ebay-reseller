@@ -24,6 +24,10 @@ if (missingEnvVars.length > 0) {
 
 const app = express();
 app.set('view engine', 'ejs');
+// Railway terminates TLS at its edge and forwards plain HTTP internally — without
+// this, Express sees every request as insecure, so express-session's `secure: true`
+// cookie silently never gets set (no error, just no session, ever).
+app.set('trust proxy', 1);
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 app.use(session({
