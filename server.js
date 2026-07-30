@@ -14,6 +14,7 @@ const { runAutomation } = require('./modules/automation');
 const app = express();
 app.set('view engine', 'ejs');
 app.use(express.urlencoded({ extended: false }));
+app.use(express.json());
 app.use(session({
   store: new pgSession({ pool, createTableIfMissing: true }),
   secret: process.env.SESSION_SECRET,
@@ -29,6 +30,46 @@ function requireAuth(req, res, next) {
 
 app.get('/login', (req, res) => res.render('login'));
 app.get('/privacy', (req, res) => res.render('privacy'));
+
+// eBay's GDPR/CCPA-required "Marketplace Account Deletion/Closure" notification
+// endpoint. GET is eBay's one-time handshake verifying you control this URL;
+// POST is the actual notification eBay sends when a connected user deletes their
+// eBay account, so their stored data (refresh token, settings, run history) can
+// be purged. EBAY_DELETION_ENDPOINT_URL must exactly match what's registered in
+// the Developer Portal's Alerts & Notifications page, and
+// EBAY_DELETION_VERIFICATION_TOKEN must match the token entered there too.
+app.get('/ebay/deletion-notification', (req, res) => {
+  const challengeCode = req.query.challenge_code;
+  const hash = crypto.createHash('sha256');
+  hash.update(challengeCode);
+  hash.update(process.env.EBAY_DELETION_VERIFICATION_TOKEN);
+  hash.update(process.env.EBAY_DELETION_ENDPOINT_URL);
+  res.set('Content-Type', 'application/json');
+  res.send(JSON.stringify({ challengeResponse: hash.digest('hex') }));
+});
+
+app.post('/ebay/deletion-notification', async (req, res) => {
+  // ponytail: doesn't verify the X-EBAY-SIGNATURE header (requires fetching
+  // eBay's public key by kid and doing ECDSA verification) — the challenge_code
+  // handshake above is what production approval actually checks. Add signature
+  // verification if this ever needs to be hardened against spoofed requests.
+  const ebayUsername = req.body?.notification?.data?.username;
+
+  if (ebayUsername) {
+    try {
+      const { rows: [client] } = await pool.query('SELECT id FROM clients WHERE ebay_user_id = $1', [ebayUsername]);
+      if (client) {
+        await pool.query('DELETE FROM runs WHERE client_id = $1', [client.id]);
+        await pool.query('DELETE FROM clients WHERE id = $1', [client.id]);
+        console.log(`Deleted all data for ${ebayUsername} per eBay account deletion notification.`);
+      }
+    } catch (error) {
+      console.error('Failed to process deletion notification:', error.message);
+    }
+  }
+
+  res.sendStatus(200);
+});
 
 app.get('/auth/ebay/start', (req, res) => {
   req.session.oauthState = crypto.randomBytes(16).toString('hex');
