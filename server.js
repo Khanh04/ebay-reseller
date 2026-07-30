@@ -44,8 +44,7 @@ app.get('/ebay/deletion-notification', (req, res) => {
   hash.update(challengeCode);
   hash.update(process.env.EBAY_DELETION_VERIFICATION_TOKEN);
   hash.update(process.env.EBAY_DELETION_ENDPOINT_URL);
-  res.set('Content-Type', 'application/json');
-  res.send(JSON.stringify({ challengeResponse: hash.digest('hex') }));
+  res.json({ challengeResponse: hash.digest('hex') });
 });
 
 app.post('/ebay/deletion-notification', async (req, res) => {
