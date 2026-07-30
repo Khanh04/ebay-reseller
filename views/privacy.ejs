@@ -10,30 +10,56 @@
 </head>
 <body>
   <!--
-    ponytail: draft only — placeholders below need real answers from the site
-    owner before this is used as the RuName's Privacy Policy URL. eBay reviews
-    this page during production keyset approval; it needs to accurately
-    describe what this app actually does and stores, not boilerplate.
+    ponytail: "what we access/store/retain" below is accurate to the actual
+    code (modules/ebayApi.js, server.js, db.js) as of this writing — keep it in
+    sync if those change. The two remaining [TODO]s are business-identity
+    details (who you are, how to reach you) that only the site owner can fill in.
   -->
   <h1>Privacy Policy</h1>
   <p>This application ("the App") connects to your eBay seller account, with your
-  explicit consent via eBay's sign-in flow, to automatically end low-traffic
-  listings and create replacement listings on your behalf.</p>
+  explicit consent via eBay's "Sign in with eBay" flow, to automatically end
+  low-traffic listings and create replacement listings on your behalf.</p>
 
   <h2>What we access</h2>
-  <p>[TODO: list exactly what eBay data the app reads/writes — e.g. active and
-  ended listing details, item titles/prices/photos, your eBay user ID.]</p>
+  <p>Once you connect your eBay account, the App can read and modify your eBay
+  <strong>listing data</strong> on your behalf:</p>
+  <ul>
+    <li>Your eBay username</li>
+    <li>Your active and ended listings: title, description, category, price,
+    quantity, item specifics, photos, shipping and return policy settings, and
+    view counts</li>
+    <li>Ending an active listing, and creating a new listing pre-filled from an
+    ended one's details ("sell similar")</li>
+  </ul>
+  <p>The App does <strong>not</strong> request access to your buyer activity,
+  orders, messages, or any payment/financial information — it only reads and
+  writes your own listing data.</p>
 
   <h2>What we store</h2>
-  <p>We store your eBay user ID, your eBay OAuth refresh token (encrypted), and
-  your configured settings (item limit, brand keywords). [TODO: confirm nothing
-  else is retained, e.g. no buyer/order data.]</p>
+  <p>We store, in our own database:</p>
+  <ul>
+    <li>Your eBay username</li>
+    <li>Your eBay OAuth refresh token, encrypted at rest (AES-256-GCM) — used to
+    act on your behalf between visits, without asking you to sign in every time</li>
+    <li>The automation settings you configure: item limit, brand keywords, view
+    count and days-left thresholds</li>
+    <li>A log of each automation run: which listings were ended/relisted,
+    timestamps, and any errors</li>
+  </ul>
+  <p>We do not store your buyer/order/payment information — we never request
+  access to it in the first place.</p>
 
   <h2>Data retention and deletion</h2>
-  <p>[TODO: describe how a user can have their data deleted, and how long data
-  is retained after disconnecting.]</p>
+  <p>We retain the data above for as long as your eBay account stays connected
+  to the App. If you delete or close your eBay account, eBay automatically
+  notifies us and we permanently delete everything listed above (encrypted
+  token, settings, run history).</p>
+  <p>[TODO: there is currently no self-service "disconnect"/"delete my data"
+  option inside the App itself — only the eBay-triggered deletion above. State
+  here whether you want to offer manual disconnection, and if so how (e.g. an
+  email request, or add a button to the dashboard).]</p>
 
   <h2>Contact</h2>
-  <p>[TODO: a real contact email/name for privacy questions.]</p>
+  <p>[TODO: a real contact name/email for privacy questions.]</p>
 </body>
 </html>
