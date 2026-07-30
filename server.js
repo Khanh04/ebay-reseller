@@ -11,6 +11,17 @@ const ebayOAuth = require('./ebayOAuth');
 const { createEbayClient } = require('./modules/ebayApi');
 const { runAutomation } = require('./modules/automation');
 
+const REQUIRED_ENV_VARS = [
+  'DATABASE_URL', 'SESSION_SECRET', 'APP_ENCRYPTION_KEY',
+  'EBAY_CLIENT_ID', 'EBAY_CLIENT_SECRET', 'EBAY_RUNAME',
+  'EBAY_DELETION_VERIFICATION_TOKEN', 'EBAY_DELETION_ENDPOINT_URL'
+];
+const missingEnvVars = REQUIRED_ENV_VARS.filter(name => !process.env[name]);
+if (missingEnvVars.length > 0) {
+  console.error(`Missing required environment variable(s): ${missingEnvVars.join(', ')}`);
+  process.exit(1);
+}
+
 const app = express();
 app.set('view engine', 'ejs');
 app.use(express.urlencoded({ extended: false }));
