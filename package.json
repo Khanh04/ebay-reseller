@@ -1,5 +1,13 @@
 {
+  "scripts": {
+    "start": "node server.js"
+  },
   "dependencies": {
-    "fast-xml-parser": "^5.10.1"
+    "connect-pg-simple": "^10.0.0",
+    "ejs": "^6.0.1",
+    "express": "^5.2.1",
+    "express-session": "^1.19.0",
+    "fast-xml-parser": "^5.10.1",
+    "pg": "^8.22.0"
   }
 }
