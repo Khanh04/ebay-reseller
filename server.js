@@ -193,6 +193,13 @@ app.get('/logout', (req, res) => {
   req.session.destroy(() => res.redirect('/login'));
 });
 
+app.post('/dashboard/disconnect', requireAuth, async (req, res) => {
+  const clientId = req.session.clientId;
+  await pool.query('DELETE FROM runs WHERE client_id = $1', [clientId]);
+  await pool.query('DELETE FROM clients WHERE id = $1', [clientId]);
+  req.session.destroy(() => res.redirect('/login'));
+});
+
 app.get('/', (req, res) => res.redirect(req.session.clientId ? '/dashboard' : '/login'));
 
 const PORT = process.env.PORT || 3000;

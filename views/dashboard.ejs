@@ -12,6 +12,7 @@
     input, textarea { width: 100%; box-sizing: border-box; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; font-family: inherit; }
     button { margin-top: 1rem; background: #0064d2; color: white; border: none; padding: 0.6rem 1.2rem; border-radius: 4px; font-weight: 600; cursor: pointer; }
     button.run { background: #2e7d32; }
+    button.danger { background: #c62828; }
     table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
     th, td { text-align: left; padding: 0.4rem; border-bottom: 1px solid #eee; }
     .status-running { color: #b58900; }
@@ -64,6 +65,16 @@
         <tr><td colspan="3">No runs yet.</td></tr>
       <% } %>
     </table>
+  </section>
+
+  <section>
+    <h2>Disconnect</h2>
+    <p>Disconnecting permanently deletes everything we store about you: your
+    encrypted eBay token, your settings, and your run history. This can't be
+    undone — you'd need to sign in with eBay again to reconnect.</p>
+    <form method="post" action="/dashboard/disconnect" onsubmit="return confirm('Permanently delete your account and all stored data? This can\'t be undone.');">
+      <button class="danger" type="submit">Disconnect and delete my data</button>
+    </form>
   </section>
 </body>
 </html>
