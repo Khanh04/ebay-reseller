@@ -1,7 +1,6 @@
 const { matchesCriteria } = require('./ebayApi');
 
-async function endLowTrafficListings(ebayClient, itemLimit, brandName, searchCriteria = {}, { dryRun = false } = {}) {
-  const listings = await ebayClient.fetchActiveListings();
+async function endLowTrafficListings(ebayClient, listings, itemLimit, brandName, searchCriteria = {}, { dryRun = false } = {}) {
   const matches = listings
     .filter(l => matchesCriteria(l, { ...searchCriteria, brandName }))
     .slice(0, itemLimit);

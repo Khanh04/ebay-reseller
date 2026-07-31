@@ -43,9 +43,9 @@ function toListing(item) {
   };
 }
 
-function matchesCriteria(listing, { brandName, maxViews = 0, daysLeftThreshold = 15 } = {}) {
+function matchesCriteria(listing, { brandName, maxViews = 0, daysLeftThreshold = 15, maxSoldCount = 0 } = {}) {
   if (brandName && !listing.title?.toLowerCase().includes(brandName.toLowerCase())) return false;
-  return listing.views <= maxViews && listing.daysLeft < daysLeftThreshold && listing.soldCount === 0 && listing.availableQuantity > 0;
+  return listing.views <= maxViews && listing.daysLeft < daysLeftThreshold && listing.soldCount <= maxSoldCount && listing.availableQuantity > 0;
 }
 
 function escapeXml(value) {
@@ -123,6 +123,23 @@ function createEbayClient({ token, env }) {
     const listings = [];
     let pageNumber = 1;
 
+    // Trims the response to just what toListing() reads. Verified against the
+    // sandbox: selecting whole containers (SellingStatus, PaginationResult)
+    // returns identical values to the untrimmed response, but drilling into a
+    // specific leaf like SellingStatus.QuantitySold silently drops it instead —
+    // eBay omits zero-valued fields, and the leaf-level selector doesn't fall
+    // back to the container — so containers are always selected whole, never
+    // their individual sub-fields.
+    const outputSelectors = [
+      `${listName}.ItemArray.Item.ItemID`,
+      `${listName}.ItemArray.Item.Title`,
+      `${listName}.ItemArray.Item.TimeLeft`,
+      `${listName}.ItemArray.Item.HitCount`,
+      `${listName}.ItemArray.Item.SellingStatus`,
+      `${listName}.ItemArray.Item.Quantity`,
+      `${listName}.PaginationResult`
+    ].map(p => `<OutputSelector>${p}</OutputSelector>`).join('\n  ');
+
     while (true) {
       // ponytail: DetailLevel=ReturnAll is the documented way to get HitCount back;
       // if it comes back 0/missing for real listings, check GetMyeBaySelling docs
@@ -130,6 +147,7 @@ function createEbayClient({ token, env }) {
       const body = await callTradingApi('GetMyeBaySelling', `<?xml version="1.0" encoding="utf-8"?>
 <GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
   <DetailLevel>ReturnAll</DetailLevel>
+  ${outputSelectors}
   <${listName}>
     <Include>true</Include>
     <Pagination>

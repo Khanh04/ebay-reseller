@@ -123,7 +123,7 @@ app.get('/auth/ebay/callback', async (req, res) => {
 // Column allowlist for any `clients` row that goes into a JSON response —
 // the real row also has `refresh_token_encrypted` and `ebay_user_id`, which
 // must never reach the browser.
-const CLIENT_FIELDS = 'ebay_username, item_limit, keywords, max_views, days_left_threshold, schedule_hours, next_run_at';
+const CLIENT_FIELDS = 'ebay_username, item_limit, keywords, max_views, days_left_threshold, max_sold_count, schedule_hours, next_run_at';
 
 async function isClientRunning(clientId) {
   const { rows: [existing] } = await pool.query(
@@ -158,6 +158,7 @@ app.post('/api/dashboard/settings', requireApiAuth, async (req, res) => {
   const itemLimit = Math.max(1, parseInt(req.body.item_limit, 10) || 10);
   const maxViews = Math.max(0, parseInt(req.body.max_views, 10) || 0);
   const daysLeftThreshold = Math.max(1, parseInt(req.body.days_left_threshold, 10) || 15);
+  const maxSoldCount = Math.max(0, parseInt(req.body.max_sold_count, 10) || 0);
   const scheduleHours = Math.max(0, parseInt(req.body.schedule_hours, 10) || 0);
   const keywords = (req.body.keywords || '')
     .split(',')
@@ -168,10 +169,10 @@ app.post('/api/dashboard/settings', requireApiAuth, async (req, res) => {
   // didn't change — simplest correct behavior for a "simple interval"
   // schedule, at the minor cost of resetting the countdown on every save.
   const { rows: [client] } = await pool.query(
-    `UPDATE clients SET item_limit = $1, keywords = $2, max_views = $3, days_left_threshold = $4, schedule_hours = $5,
-       next_run_at = CASE WHEN $5 > 0 THEN now() + ($5 || ' hours')::interval ELSE NULL END
-     WHERE id = $6 RETURNING ${CLIENT_FIELDS}`,
-    [itemLimit, JSON.stringify(keywords), maxViews, daysLeftThreshold, scheduleHours, req.session.clientId]
+    `UPDATE clients SET item_limit = $1, keywords = $2, max_views = $3, days_left_threshold = $4, max_sold_count = $5, schedule_hours = $6,
+       next_run_at = CASE WHEN $6 > 0 THEN now() + ($6 || ' hours')::interval ELSE NULL END
+     WHERE id = $7 RETURNING ${CLIENT_FIELDS}`,
+    [itemLimit, JSON.stringify(keywords), maxViews, daysLeftThreshold, maxSoldCount, scheduleHours, req.session.clientId]
   );
   res.json({ client });
 });
@@ -188,7 +189,8 @@ app.post('/api/dashboard/preview', requireApiAuth, async (req, res) => {
       itemLimit: client.item_limit,
       keywords: client.keywords,
       maxViews: client.max_views,
-      daysLeftThreshold: client.days_left_threshold
+      daysLeftThreshold: client.days_left_threshold,
+      maxSoldCount: client.max_sold_count
     }, (line) => logLines.push(line), { dryRun: true });
 
     res.json({ ended: result.ended, log: logLines.join('\n') });
@@ -233,7 +235,8 @@ async function runInBackground(runId, client) {
       itemLimit: client.item_limit,
       keywords: client.keywords,
       maxViews: client.max_views,
-      daysLeftThreshold: client.days_left_threshold
+      daysLeftThreshold: client.days_left_threshold,
+      maxSoldCount: client.max_sold_count
     }, log);
 
     await pool.query(

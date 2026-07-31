@@ -31,6 +31,7 @@ function Dashboard() {
           keywords: data.client.keywords.join(', '),
           days_left_threshold: data.client.days_left_threshold,
           max_views: data.client.max_views,
+          max_sold_count: data.client.max_sold_count,
           schedule_hours: data.client.schedule_hours,
         })
         if (data.runs[0]?.status === 'running') {
@@ -164,6 +165,15 @@ function Dashboard() {
             min="0"
             value={settingsForm.max_views}
             onChange={(e) => setSettingsForm({ ...settingsForm, max_views: e.target.value })}
+          />
+
+          <label htmlFor="max_sold_count">End listings with this many sales or fewer</label>
+          <input
+            type="number"
+            id="max_sold_count"
+            min="0"
+            value={settingsForm.max_sold_count}
+            onChange={(e) => setSettingsForm({ ...settingsForm, max_sold_count: e.target.value })}
           />
 
           <label htmlFor="schedule_hours">Run automatically</label>

@@ -2,11 +2,16 @@ const { endLowTrafficListings } = require('./listings');
 const { resellEndedListings } = require('./reseller');
 const { waitForDelay } = require('./utils');
 
-async function runAutomation(ebayClient, { itemLimit, keywords, maxViews, daysLeftThreshold }, log = console.log, { dryRun = false } = {}) {
+async function runAutomation(ebayClient, { itemLimit, keywords, maxViews, daysLeftThreshold, maxSoldCount }, log = console.log, { dryRun = false } = {}) {
   const brands = keywords && keywords.length > 0 ? keywords : [null];
-  const searchCriteria = { maxViews, daysLeftThreshold };
+  const searchCriteria = { maxViews, daysLeftThreshold, maxSoldCount };
   const ended = [];
   const resold = [];
+
+  // Fetched once and reused across brands — endLowTrafficListings used to call
+  // this itself, so N configured keywords meant N redundant full-inventory
+  // re-fetches of the same active listings.
+  const listings = await ebayClient.fetchActiveListings();
 
   for (let i = 0; i < brands.length; i++) {
     const brandName = brands[i];
@@ -14,7 +19,7 @@ async function runAutomation(ebayClient, { itemLimit, keywords, maxViews, daysLe
 
     let endedItems = [];
     try {
-      endedItems = await endLowTrafficListings(ebayClient, itemLimit, brandName, searchCriteria, { dryRun });
+      endedItems = await endLowTrafficListings(ebayClient, listings, itemLimit, brandName, searchCriteria, { dryRun });
       if (endedItems.length === 0) {
         log(`No items found for ${brandName || 'all items'}. Skipping.`);
         continue;
