@@ -1,6 +1,7 @@
 require('./modules/utils').loadEnv();
 
 const crypto = require('crypto');
+const path = require('path');
 const express = require('express');
 const session = require('express-session');
 const pgSession = require('connect-pg-simple')(session);
@@ -28,7 +29,6 @@ app.set('view engine', 'ejs');
 // this, Express sees every request as insecure, so express-session's `secure: true`
 // cookie silently never gets set (no error, just no session, ever).
 app.set('trust proxy', 1);
-app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 app.use(session({
   store: new pgSession({ pool, createTableIfMissing: true }),
@@ -38,12 +38,11 @@ app.use(session({
   cookie: { secure: ebayOAuth.ENV === 'production', maxAge: 30 * 24 * 60 * 60 * 1000 }
 }));
 
-function requireAuth(req, res, next) {
-  if (!req.session.clientId) return res.redirect('/login');
+function requireApiAuth(req, res, next) {
+  if (!req.session.clientId) return res.status(401).json({ error: 'not_authenticated' });
   next();
 }
 
-app.get('/login', (req, res) => res.render('login'));
 app.get('/privacy', (req, res) => res.render('privacy'));
 
 // eBay's GDPR/CCPA-required "Marketplace Account Deletion/Closure" notification
@@ -94,7 +93,7 @@ app.get('/auth/ebay/callback', async (req, res) => {
   const { code, state } = req.query;
 
   if (!state || state !== req.session.oauthState) {
-    return res.status(400).send('Invalid OAuth state — please try signing in again.');
+    return res.redirect('/?authError=' + encodeURIComponent('Invalid OAuth state — please try signing in again.'));
   }
 
   try {
@@ -114,23 +113,40 @@ app.get('/auth/ebay/callback', async (req, res) => {
     );
 
     req.session.clientId = rows[0].id;
-    res.redirect('/dashboard');
+    res.redirect('/');
   } catch (error) {
     console.error('OAuth callback failed:', error.message);
-    res.status(500).send('Failed to connect your eBay account. Please try again.');
+    res.redirect('/?authError=' + encodeURIComponent('Failed to connect your eBay account. Please try again.'));
   }
 });
 
-app.get('/dashboard', requireAuth, async (req, res) => {
-  const { rows: [client] } = await pool.query('SELECT * FROM clients WHERE id = $1', [req.session.clientId]);
-  const { rows: runs } = await pool.query(
-    'SELECT * FROM runs WHERE client_id = $1 ORDER BY started_at DESC LIMIT 10',
-    [req.session.clientId]
-  );
-  res.render('dashboard', { client, runs });
+// Column allowlist for any `clients` row that goes into a JSON response —
+// the real row also has `refresh_token_encrypted` and `ebay_user_id`, which
+// must never reach the browser.
+const CLIENT_FIELDS = 'ebay_username, item_limit, keywords, max_views, days_left_threshold';
+
+app.get('/api/session', (req, res) => {
+  res.json({ authenticated: Boolean(req.session.clientId) });
 });
 
-app.post('/dashboard/settings', requireAuth, async (req, res) => {
+app.get('/api/dashboard', requireApiAuth, async (req, res) => {
+  const { rows: [client] } = await pool.query(`SELECT ${CLIENT_FIELDS} FROM clients WHERE id = $1`, [req.session.clientId]);
+  const { rows: runs } = await pool.query(
+    'SELECT id, status, started_at, finished_at, log FROM runs WHERE client_id = $1 ORDER BY started_at DESC LIMIT 10',
+    [req.session.clientId]
+  );
+  res.json({ client: { ...client, ebay_env: ebayOAuth.ENV }, runs });
+});
+
+app.get('/api/runs', requireApiAuth, async (req, res) => {
+  const { rows: runs } = await pool.query(
+    'SELECT id, status, started_at, finished_at, log FROM runs WHERE client_id = $1 ORDER BY started_at DESC LIMIT 10',
+    [req.session.clientId]
+  );
+  res.json({ runs });
+});
+
+app.post('/api/dashboard/settings', requireApiAuth, async (req, res) => {
   const itemLimit = Math.max(1, parseInt(req.body.item_limit, 10) || 10);
   const maxViews = Math.max(0, parseInt(req.body.max_views, 10) || 0);
   const daysLeftThreshold = Math.max(1, parseInt(req.body.days_left_threshold, 10) || 15);
@@ -139,17 +155,17 @@ app.post('/dashboard/settings', requireAuth, async (req, res) => {
     .map(k => k.trim())
     .filter(Boolean);
 
-  await pool.query(
-    'UPDATE clients SET item_limit = $1, keywords = $2, max_views = $3, days_left_threshold = $4 WHERE id = $5',
+  const { rows: [client] } = await pool.query(
+    `UPDATE clients SET item_limit = $1, keywords = $2, max_views = $3, days_left_threshold = $4 WHERE id = $5 RETURNING ${CLIENT_FIELDS}`,
     [itemLimit, JSON.stringify(keywords), maxViews, daysLeftThreshold, req.session.clientId]
   );
-  res.redirect('/dashboard');
+  res.json({ client });
 });
 
-app.post('/dashboard/run', requireAuth, async (req, res) => {
+app.post('/api/dashboard/run', requireApiAuth, async (req, res) => {
   const { rows: [client] } = await pool.query('SELECT * FROM clients WHERE id = $1', [req.session.clientId]);
   const { rows: [run] } = await pool.query(
-    "INSERT INTO runs (client_id, status) VALUES ($1, 'running') RETURNING id",
+    "INSERT INTO runs (client_id, status) VALUES ($1, 'running') RETURNING id, status, started_at",
     [client.id]
   );
 
@@ -158,7 +174,7 @@ app.post('/dashboard/run', requireAuth, async (req, res) => {
   // clients start running this at once.
   runInBackground(run.id, client).catch(error => console.error('Background run crashed:', error));
 
-  res.redirect('/dashboard');
+  res.json({ runId: run.id, status: run.status, started_at: run.started_at });
 });
 
 async function runInBackground(runId, client) {
@@ -193,18 +209,28 @@ async function runInBackground(runId, client) {
   }
 }
 
-app.get('/logout', (req, res) => {
-  req.session.destroy(() => res.redirect('/login'));
+app.post('/api/logout', (req, res) => {
+  req.session.destroy(() => res.json({ ok: true }));
 });
 
-app.post('/dashboard/disconnect', requireAuth, async (req, res) => {
+app.post('/api/dashboard/disconnect', requireApiAuth, async (req, res) => {
   const clientId = req.session.clientId;
   await pool.query('DELETE FROM runs WHERE client_id = $1', [clientId]);
   await pool.query('DELETE FROM clients WHERE id = $1', [clientId]);
-  req.session.destroy(() => res.redirect('/login'));
+  req.session.destroy(() => res.json({ ok: true }));
 });
 
-app.get('/', (req, res) => res.redirect(req.session.clientId ? '/dashboard' : '/login'));
+// Any other /api/* request is a typo'd/removed endpoint — 404 it explicitly
+// instead of letting it fall through to the SPA catch-all below with a 200.
+app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
+
+app.use(express.static(path.join(__dirname, 'client/dist')));
+// Must be the last route: serves the SPA for any real page URL (including
+// old bookmarks like `/dashboard`), which then calls /api/session to decide
+// what to show. Express 5's path-to-regexp needs a *named* wildcard here —
+// a bare `app.get('*', ...)` throws at startup, and `/*splat` alone won't
+// match the bare root `/`.
+app.get('{/*splat}', (req, res) => res.sendFile(path.join(__dirname, 'client/dist/index.html')));
 
 const PORT = process.env.PORT || 3000;
 
