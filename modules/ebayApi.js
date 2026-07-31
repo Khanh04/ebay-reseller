@@ -230,6 +230,7 @@ function createEbayClient({ token, env }) {
     <ListingDuration>${item.ListingDuration}</ListingDuration>
     <ListingType>FixedPriceItem</ListingType>
     <PictureDetails>${pictureUrls.map(u => `<PictureURL>${escapeXml(u)}</PictureURL>`).join('')}</PictureDetails>
+    ${item.Location ? `<Location>${escapeXml(item.Location)}</Location>` : ''}
     ${item.PostalCode ? `<PostalCode>${item.PostalCode}</PostalCode>` : ''}
     <Quantity>${item.Quantity}</Quantity>
     ${policyXml}
