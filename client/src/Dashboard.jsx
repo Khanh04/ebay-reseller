@@ -1,11 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 
+function itemLabel({ itemId, title }, env) {
+  const label = title ? `${title} (${itemId})` : itemId
+  if (env !== 'production') return label
+  return (
+    <a href={`https://www.ebay.com/itm/${itemId}`} target="_blank" rel="noreferrer">
+      {label}
+    </a>
+  )
+}
+
 function Dashboard() {
   const [client, setClient] = useState(null)
   const [runs, setRuns] = useState([])
   const [settingsForm, setSettingsForm] = useState(null)
   const [saving, setSaving] = useState(false)
   const [running, setRunning] = useState(false)
+  const [runError, setRunError] = useState(null)
+  const [previewResult, setPreviewResult] = useState(null)
   const pollRef = useRef(null)
 
   useEffect(() => {
@@ -19,7 +31,12 @@ function Dashboard() {
           keywords: data.client.keywords.join(', '),
           days_left_threshold: data.client.days_left_threshold,
           max_views: data.client.max_views,
+          schedule_hours: data.client.schedule_hours,
         })
+        if (data.runs[0]?.status === 'running') {
+          setRunning(true)
+          pollRuns()
+        }
       })
     return () => clearInterval(pollRef.current)
   }, [])
@@ -52,19 +69,38 @@ function Dashboard() {
       keywords: data.client.keywords.join(', '),
       days_left_threshold: data.client.days_left_threshold,
       max_views: data.client.max_views,
+      schedule_hours: data.client.schedule_hours,
     })
     setSaving(false)
   }
 
   async function runNow() {
+    setRunError(null)
     setRunning(true)
     const res = await fetch('/api/dashboard/run', { method: 'POST' })
+    if (res.status === 409) {
+      setRunning(false)
+      setRunError('A run is already in progress.')
+      return
+    }
     const run = await res.json()
     setRuns((prev) => [
-      { id: run.runId, status: run.status, started_at: run.started_at, finished_at: null, log: '' },
+      { id: run.runId, status: run.status, started_at: run.started_at, finished_at: null, log: '', result: { ended: [], resold: [] } },
       ...prev,
     ])
     pollRuns()
+  }
+
+  async function preview() {
+    setPreviewResult({ loading: true })
+    try {
+      const res = await fetch('/api/dashboard/preview', { method: 'POST' })
+      if (!res.ok) throw new Error('preview_failed')
+      const data = await res.json()
+      setPreviewResult({ loading: false, ended: data.ended, log: data.log })
+    } catch {
+      setPreviewResult({ loading: false, ended: [], log: '', error: 'Preview failed. Try again.' })
+    }
   }
 
   async function disconnect() {
@@ -130,6 +166,22 @@ function Dashboard() {
             onChange={(e) => setSettingsForm({ ...settingsForm, max_views: e.target.value })}
           />
 
+          <label htmlFor="schedule_hours">Run automatically</label>
+          <select
+            id="schedule_hours"
+            value={settingsForm.schedule_hours}
+            onChange={(e) => setSettingsForm({ ...settingsForm, schedule_hours: e.target.value })}
+          >
+            <option value="0">Off</option>
+            <option value="12">Every 12 hours</option>
+            <option value="24">Daily</option>
+            <option value="72">Every 3 days</option>
+            <option value="168">Weekly</option>
+          </select>
+          {client.schedule_hours > 0 && client.next_run_at && (
+            <p>Next scheduled run: {new Date(client.next_run_at).toLocaleString()}</p>
+          )}
+
           <button type="submit" disabled={saving}>
             {saving ? 'Saving…' : 'Save settings'}
           </button>
@@ -140,7 +192,37 @@ function Dashboard() {
         <h2>Run</h2>
         <button className="run" type="button" onClick={runNow} disabled={running}>
           {running ? 'Running…' : 'Run now'}
+        </button>{' '}
+        <button type="button" onClick={preview} disabled={previewResult?.loading}>
+          {previewResult?.loading ? 'Checking…' : 'Preview'}
         </button>
+        {runError && <p className="error-banner">{runError}</p>}
+        {previewResult && !previewResult.loading && (
+          <div>
+            {previewResult.error ? (
+              <p className="error-banner">{previewResult.error}</p>
+            ) : previewResult.ended.length === 0 ? (
+              <p>No listings currently match your settings.</p>
+            ) : (
+              <>
+                <p>{previewResult.ended.length} listing(s) would be ended and relisted:</p>
+                <ul>
+                  {previewResult.ended.map((item) => (
+                    <li key={item.itemId}>
+                      {itemLabel(item, client.ebay_env)} {item.brand && `— ${item.brand}`}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {previewResult.log && (
+              <details>
+                <summary>Show details</summary>
+                <pre className="run-log">{previewResult.log}</pre>
+              </details>
+            )}
+          </div>
+        )}
       </section>
 
       <section className="card">
@@ -149,14 +231,46 @@ function Dashboard() {
           <tr>
             <th>Started</th>
             <th>Status</th>
-            <th>Log</th>
+            <th>Details</th>
           </tr>
           {runs.map((run) => (
             <tr key={run.id}>
               <td>{new Date(run.started_at).toLocaleString()}</td>
               <td className={`status-${run.status}`}>{run.status}</td>
               <td>
-                <pre className="run-log">{run.log}</pre>
+                <details>
+                  <summary>
+                    {run.result?.ended?.length
+                      ? `Ended ${run.result.ended.length}, resold ${run.result.resold?.length ?? 0}`
+                      : 'Details'}
+                  </summary>
+                  {run.result?.ended?.length > 0 && (
+                    <>
+                      <strong>Ended</strong>
+                      <ul>
+                        {run.result.ended.map((item) => (
+                          <li key={item.itemId}>{itemLabel(item, client.ebay_env)}</li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                  {run.result?.resold?.length > 0 && (
+                    <>
+                      <strong>Resold</strong>
+                      <ul>
+                        {run.result.resold.map((item) => (
+                          <li key={item.newItemId}>
+                            {item.title} → {itemLabel({ itemId: item.newItemId }, client.ebay_env)}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                  <details>
+                    <summary>Show raw log</summary>
+                    <pre className="run-log">{run.log}</pre>
+                  </details>
+                </details>
               </td>
             </tr>
           ))}

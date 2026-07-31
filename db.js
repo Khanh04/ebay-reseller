@@ -18,6 +18,8 @@ async function migrate() {
 
     ALTER TABLE clients ADD COLUMN IF NOT EXISTS max_views INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE clients ADD COLUMN IF NOT EXISTS days_left_threshold INTEGER NOT NULL DEFAULT 15;
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS schedule_hours INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS next_run_at TIMESTAMPTZ;
 
     CREATE TABLE IF NOT EXISTS runs (
       id SERIAL PRIMARY KEY,
@@ -27,6 +29,8 @@ async function migrate() {
       started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       finished_at TIMESTAMPTZ
     );
+
+    ALTER TABLE runs ADD COLUMN IF NOT EXISTS result JSONB NOT NULL DEFAULT '{"ended":[],"resold":[]}';
   `);
 }
 

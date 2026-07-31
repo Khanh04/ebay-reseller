@@ -1,6 +1,6 @@
 const { matchesCriteria } = require('./ebayApi');
 
-async function endLowTrafficListings(ebayClient, itemLimit, brandName, searchCriteria = {}) {
+async function endLowTrafficListings(ebayClient, itemLimit, brandName, searchCriteria = {}, { dryRun = false } = {}) {
   const listings = await ebayClient.fetchActiveListings();
   const matches = listings
     .filter(l => matchesCriteria(l, { ...searchCriteria, brandName }))
@@ -8,13 +8,14 @@ async function endLowTrafficListings(ebayClient, itemLimit, brandName, searchCri
 
   console.log(`Found ${matches.length} matching listing(s) for ${brandName || 'all items'}.`);
 
-  const endedItemIds = [];
+  const endedItems = [];
   for (const listing of matches) {
     try {
       // ponytail: fetchActiveListings can lag behind an item's real-time status
       // (e.g. eBay force-ends a listing for a VeRO/IP takedown after it was
       // already matched here) — re-check right before acting on it rather than
-      // trusting the list snapshot.
+      // trusting the list snapshot. Done even in dryRun so a preview accurately
+      // reflects what a real run would skip.
       if (await ebayClient.isItemEnded(listing.itemId)) {
         console.log(`Skipping ${listing.itemId} — already ended (likely by eBay itself since it was listed as active).`);
         continue;
@@ -26,15 +27,15 @@ async function endLowTrafficListings(ebayClient, itemLimit, brandName, searchCri
         continue;
       }
 
-      await ebayClient.endItem(listing.itemId);
-      console.log(`✓ Ended ${listing.itemId} — "${listing.title}"`);
-      endedItemIds.push(listing.itemId);
+      if (!dryRun) await ebayClient.endItem(listing.itemId);
+      console.log(`${dryRun ? '(preview) would end' : '✓ Ended'} ${listing.itemId} — "${listing.title}"`);
+      endedItems.push({ itemId: listing.itemId, title: listing.title });
     } catch (error) {
       console.error(`Error ending item ${listing.itemId}:`, error.message);
     }
   }
 
-  return endedItemIds;
+  return endedItems;
 }
 
 module.exports = {

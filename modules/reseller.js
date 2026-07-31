@@ -14,11 +14,11 @@ async function waitUntilEnded(ebayClient, itemId) {
 // Resells exactly the items this run ended — not "whatever's in UnsoldList", which
 // also contains every historically-ended-unsold item (including ones already
 // resold earlier) and would otherwise get reprocessed forever.
-async function resellEndedListings(ebayClient, endedItemIds) {
-  console.log(`Reselling ${endedItemIds.length} item(s) just ended.`);
+async function resellEndedListings(ebayClient, endedItems) {
+  console.log(`Reselling ${endedItems.length} item(s) just ended.`);
 
-  let relisted = 0;
-  for (const itemId of endedItemIds) {
+  const resold = [];
+  for (const { itemId, title } of endedItems) {
     try {
       const ended = await waitUntilEnded(ebayClient, itemId);
       if (!ended) {
@@ -27,13 +27,13 @@ async function resellEndedListings(ebayClient, endedItemIds) {
       }
       const newItemId = await ebayClient.sellSimilarItem(itemId);
       console.log(`✓ Sold similar for ${itemId} → ${newItemId}`);
-      relisted++;
+      resold.push({ oldItemId: itemId, newItemId, title });
     } catch (error) {
       console.error(`Error reselling item ${itemId}:`, error.message);
     }
   }
 
-  return relisted;
+  return resold;
 }
 
 module.exports = {
