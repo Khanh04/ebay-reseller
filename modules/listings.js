@@ -11,6 +11,12 @@ async function endLowTrafficListings(ebayClient, itemLimit, brandName, searchCri
   const endedItemIds = [];
   for (const listing of matches) {
     try {
+      const hiddenReason = await ebayClient.getHideFromSearchReason(listing.itemId);
+      if (hiddenReason) {
+        console.log(`Skipping ${listing.itemId} — hidden from search (${hiddenReason}); ending/reselling it won't help.`);
+        continue;
+      }
+
       await ebayClient.endItem(listing.itemId);
       console.log(`✓ Ended ${listing.itemId} — "${listing.title}"`);
       endedItemIds.push(listing.itemId);

@@ -148,6 +148,17 @@ function createEbayClient({ token, env }) {
     return item.SellingStatus?.ListingStatus === 'Ended' || item.SellingStatus?.ListingStatus === 'Completed';
   }
 
+  // Catches VeRO/policy-violation holds (and other hidden-from-search states)
+  // before we end the item — ending one is harmless, but reselling it just
+  // recreates the same flagged content and fails the same way every time.
+  async function getHideFromSearchReason(itemId) {
+    const { Item: item } = await callTradingApi('GetItem', `<?xml version="1.0" encoding="utf-8"?>
+<GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ItemID>${itemId}</ItemID>
+</GetItemRequest>`);
+    return item.HideFromSearch === 'true' ? (item.ReasonHideFromSearch || 'unspecified reason') : null;
+  }
+
   async function endItem(itemId) {
     await callTradingApi('EndItem', `<?xml version="1.0" encoding="utf-8"?>
 <EndItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
@@ -212,6 +223,7 @@ function createEbayClient({ token, env }) {
     callTradingApi,
     fetchActiveListings,
     isItemEnded,
+    getHideFromSearchReason,
     endItem,
     sellSimilarItem
   };
