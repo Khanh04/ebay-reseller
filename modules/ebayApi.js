@@ -70,6 +70,23 @@ function shippingServiceOptionsXml(options) {
     </ShippingServiceOptions>`).join('');
 }
 
+// Sellers who've opted into eBay's Business Policies must reference their
+// existing named policies by ID instead of inline ShippingDetails/ReturnPolicy
+// — mixing the two is a hard AddFixedPriceItem error ("use policy IDs rather
+// than legacy fields"). GetItem returns SellerProfiles for such sellers; its
+// absence means the seller is still on legacy per-listing fields.
+function sellerProfilesXml(sellerProfiles) {
+  const shippingId = sellerProfiles.SellerShippingProfile?.ShippingProfileID;
+  const returnId = sellerProfiles.SellerReturnProfile?.ReturnProfileID;
+  const paymentId = sellerProfiles.SellerPaymentProfile?.PaymentProfileID;
+
+  return `<SellerProfiles>
+    ${shippingId ? `<SellerShippingProfile><ShippingProfileID>${shippingId}</ShippingProfileID></SellerShippingProfile>` : ''}
+    ${returnId ? `<SellerReturnProfile><ReturnProfileID>${returnId}</ReturnProfileID></SellerReturnProfile>` : ''}
+    ${paymentId ? `<SellerPaymentProfile><PaymentProfileID>${paymentId}</PaymentProfileID></SellerPaymentProfile>` : ''}
+  </SellerProfiles>`;
+}
+
 // ponytail: EBAY_USER_TOKEN / a client's stored refresh-derived token is used
 // directly via X-EBAY-API-IAF-TOKEN — no OAuth refresh-token exchange needed for
 // the long-lived Auth'n'Auth case (CLI usage); the web app's per-client tokens
@@ -182,6 +199,19 @@ function createEbayClient({ token, env }) {
       ? asArray(item.PictureDetails.PictureURL)
       : asArray(item.PictureDetails?.GalleryURL);
 
+    const policyXml = item.SellerProfiles
+      ? sellerProfilesXml(item.SellerProfiles)
+      : `<ReturnPolicy>
+      <ReturnsAcceptedOption>${item.ReturnPolicy?.ReturnsAcceptedOption}</ReturnsAcceptedOption>
+      <RefundOption>${item.ReturnPolicy?.RefundOption}</RefundOption>
+      <ReturnsWithinOption>${item.ReturnPolicy?.ReturnsWithinOption}</ReturnsWithinOption>
+      <ShippingCostPaidByOption>${item.ReturnPolicy?.ShippingCostPaidByOption}</ShippingCostPaidByOption>
+    </ReturnPolicy>
+    <ShippingDetails>
+      <ShippingType>${item.ShippingDetails?.ShippingType || 'Flat'}</ShippingType>
+      ${shippingServiceOptionsXml(item.ShippingDetails?.ShippingServiceOptions)}
+    </ShippingDetails>`;
+
     const body = await callTradingApi('AddFixedPriceItem', `<?xml version="1.0" encoding="utf-8"?>
 <AddFixedPriceItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
   <Item>
@@ -200,18 +230,9 @@ function createEbayClient({ token, env }) {
     <ListingDuration>${item.ListingDuration}</ListingDuration>
     <ListingType>FixedPriceItem</ListingType>
     <PictureDetails>${pictureUrls.map(u => `<PictureURL>${escapeXml(u)}</PictureURL>`).join('')}</PictureDetails>
-    <PostalCode>${item.PostalCode}</PostalCode>
+    ${item.PostalCode ? `<PostalCode>${item.PostalCode}</PostalCode>` : ''}
     <Quantity>${item.Quantity}</Quantity>
-    <ReturnPolicy>
-      <ReturnsAcceptedOption>${item.ReturnPolicy?.ReturnsAcceptedOption}</ReturnsAcceptedOption>
-      <RefundOption>${item.ReturnPolicy?.RefundOption}</RefundOption>
-      <ReturnsWithinOption>${item.ReturnPolicy?.ReturnsWithinOption}</ReturnsWithinOption>
-      <ShippingCostPaidByOption>${item.ReturnPolicy?.ShippingCostPaidByOption}</ShippingCostPaidByOption>
-    </ReturnPolicy>
-    <ShippingDetails>
-      <ShippingType>${item.ShippingDetails?.ShippingType || 'Flat'}</ShippingType>
-      ${shippingServiceOptionsXml(item.ShippingDetails?.ShippingServiceOptions)}
-    </ShippingDetails>
+    ${policyXml}
     <Site>${item.Site}</Site>
   </Item>
 </AddFixedPriceItemRequest>`);
